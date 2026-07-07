@@ -85,6 +85,8 @@ AICR_NAMESPACES=(
     kueue-system
     kubeflow
     slinky
+    slurm
+    topograph
     privileged-gpu-operator
     privileged-network-operator
     privileged-nvsentinel
