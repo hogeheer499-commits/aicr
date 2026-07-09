@@ -37,6 +37,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -2082,6 +2083,73 @@ func TestComponentRefApplyRegistryDefaults_HealthCheckAsserts(t *testing.T) {
 
 		if ref.HealthCheckAsserts != "existing-content" {
 			t.Errorf("HealthCheckAsserts = %q, want %q (should preserve existing)", ref.HealthCheckAsserts, "existing-content")
+		}
+	})
+}
+
+func TestComponentRefApplyRegistryDefaults_ManifestFiles(t *testing.T) {
+	registryDefaults := []string{
+		"components/kueue/manifests/resource-flavor.yaml",
+		"components/kueue/manifests/cluster-queue.yaml",
+	}
+
+	t.Run("filled from registry defaults when ref has none", func(t *testing.T) {
+		config := &ComponentConfig{
+			Name:          "test-helm",
+			DisplayName:   "Test Helm",
+			ManifestFiles: registryDefaults,
+			Helm: HelmConfig{
+				DefaultRepository: "https://charts.example.com",
+			},
+		}
+		ref := &ComponentRef{Name: "test-helm"}
+
+		ref.ApplyRegistryDefaults(config)
+
+		if !slices.Equal(ref.ManifestFiles, registryDefaults) {
+			t.Errorf("ManifestFiles = %v, want %v", ref.ManifestFiles, registryDefaults)
+		}
+		// Must be a copy, not an alias: mutating the ref must not leak
+		// into the shared registry config.
+		ref.ManifestFiles[0] = "mutated"
+		if config.ManifestFiles[0] != "components/kueue/manifests/resource-flavor.yaml" {
+			t.Errorf("registry config aliased: config.ManifestFiles[0] = %q", config.ManifestFiles[0])
+		}
+	})
+
+	t.Run("ref-declared manifest files win", func(t *testing.T) {
+		config := &ComponentConfig{
+			Name:          "test-helm",
+			DisplayName:   "Test Helm",
+			ManifestFiles: registryDefaults,
+			Helm: HelmConfig{
+				DefaultRepository: "https://charts.example.com",
+			},
+		}
+		own := []string{"components/other/manifests/custom.yaml"}
+		ref := &ComponentRef{Name: "test-helm", ManifestFiles: own}
+
+		ref.ApplyRegistryDefaults(config)
+
+		if !slices.Equal(ref.ManifestFiles, own) {
+			t.Errorf("ManifestFiles = %v, want %v (registry defaults must not overwrite)", ref.ManifestFiles, own)
+		}
+	})
+
+	t.Run("no-op when registry declares none", func(t *testing.T) {
+		config := &ComponentConfig{
+			Name:        "test-helm",
+			DisplayName: "Test Helm",
+			Helm: HelmConfig{
+				DefaultRepository: "https://charts.example.com",
+			},
+		}
+		ref := &ComponentRef{Name: "test-helm"}
+
+		ref.ApplyRegistryDefaults(config)
+
+		if len(ref.ManifestFiles) != 0 {
+			t.Errorf("ManifestFiles = %v, want empty", ref.ManifestFiles)
 		}
 	})
 }
