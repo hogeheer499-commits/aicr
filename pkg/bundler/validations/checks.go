@@ -31,6 +31,7 @@ func init() {
 	registerCheck("CheckWorkloadSelectorMissing", CheckWorkloadSelectorMissing)
 	registerCheck("CheckAcceleratedSelectorMissing", CheckAcceleratedSelectorMissing)
 	registerCheck("CheckHostMofedWithoutNetworkOperator", CheckHostMofedWithoutNetworkOperator)
+	registerCheck("CheckWildcardAcceleratedToleration", CheckWildcardAcceleratedToleration)
 }
 
 // registerCheck is a helper to register validation functions from checks.go.
@@ -165,6 +166,63 @@ func checkConditions(recipeResult *recipe.RecipeResult, conditions map[string][]
 	}
 
 	return true
+}
+
+// CheckWildcardAcceleratedToleration warns when the effective accelerated-node
+// tolerations for a component include a wildcard (keyless operator: Exists)
+// toleration. Scope it via registry conditions to services where the wildcard
+// is harmful — on AKS, admission collapses a pod's toleration list to just the
+// wildcard when one is present, which defeats the nodewright operator's drain
+// exemption for its own package pods and deadlocks packages that declare
+// interrupts (NVIDIA/nodewright#296).
+//
+// The default bundle path always hits this: with no
+// --accelerated-node-toleration flag the CLI falls back to
+// snapshotter.DefaultTolerations() (a single bare operator: Exists). An empty
+// toleration list is flagged too, because the tuning manifest template renders
+// its own wildcard fallback when none are injected.
+func CheckWildcardAcceleratedToleration(ctx context.Context, componentName string, recipeResult *recipe.RecipeResult, bundlerConfig *config.Config, conditions map[string][]string) ([]string, []error) {
+	if bundlerConfig == nil {
+		return nil, nil
+	}
+
+	// Check if component exists in recipe
+	hasComponent := false
+	for _, ref := range recipeResult.ComponentRefs {
+		if ref.Name == componentName {
+			hasComponent = true
+			break
+		}
+	}
+
+	if !hasComponent {
+		return nil, nil
+	}
+
+	// Check conditions (e.g., service: aks)
+	if !checkConditions(recipeResult, conditions) {
+		return nil, nil
+	}
+
+	tolerations := bundlerConfig.AcceleratedNodeTolerations()
+	wildcard := len(tolerations) == 0 // template falls back to its own wildcard
+	for _, tol := range tolerations {
+		if tol.Key == "" {
+			wildcard = true
+			break
+		}
+	}
+
+	if !wildcard {
+		return nil, nil
+	}
+
+	baseMsg := fmt.Sprintf("%s renders a wildcard (keyless) accelerated-node toleration", componentName)
+	slog.Warn(baseMsg,
+		"component", componentName,
+		"conditions", conditions,
+	)
+	return []string{baseMsg}, nil
 }
 
 // CheckHostMofedWithoutNetworkOperator warns when network-operator is disabled
