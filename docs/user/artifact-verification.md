@@ -89,7 +89,7 @@ A bundle whose computed level is below the requested floor exits non-zero.
 Some environments cannot use keyless OIDC signing, so bundles are signed with a
 cloud-KMS key via `aicr bundle --attest --signing-key <kms-uri>`. Verify those
 bundles with `--key`, supplying the same KMS URI used to sign. Supported
-schemes are `awskms://`, `gcpkms://`, and `azurekms://`.
+schemes are `awskms://`, `gcpkms://`, `azurekms://`, and `hashivault://`.
 
 ```shell
 # Sign with a KMS key, then verify it with the same key.
